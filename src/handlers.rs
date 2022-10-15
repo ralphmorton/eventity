@@ -1,6 +1,7 @@
 
 use super::query;
 use crate::types::*;
+use rayon::prelude::*;
 use rocket::serde::json::{Json, Value, json};
 use rocket::State;
 
@@ -54,7 +55,7 @@ pub async fn view(entity_id: &str, vx: Json<Vec<View>>, pool: &State<bb8::Pool<b
     .await
     .unwrap();
 
-  let px : Vec<(u64, Patch)> = raw.iter().map(|j| rmp_serde::decode::from_read(&**j).unwrap()).collect();
+  let px : Vec<(u64, Patch)> = raw.par_iter().map(|j| rmp_serde::decode::from_read(&**j).unwrap()).collect();
 
   ViewResponse::create(query::run(&vx, &px))
 }

@@ -1,19 +1,18 @@
 
 use crate::types::*;
+use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::HashMap;
 
 pub fn run<'a>(views: &'a Vec<View>, patches: &'a Vec<(u64, Patch)>) -> Result<HashMap<&'a str, Value>, &'static str> {
-  let mut res : HashMap<&str, Value> = HashMap::new();
-
-  for v in views {
-    match proj(&v, patches) {
-      Ok(val) => { res.insert(&v.field, val); },
-      Err(err) => return Err(err)
-    }
-  }
-
-  Ok(res)
+  views
+    .par_iter()
+    .map(|view| {
+      proj(&view, patches).map(|val| {
+        ViewResult::create(&view.field, val).to_tuple()
+      })
+    })
+    .collect()
 }
 
 fn proj<'a>(v: &'a View, px: &'a Vec<(u64, Patch)>) -> Result<Value, &'static str> {
@@ -35,14 +34,14 @@ fn apply_filters<'a>(view: &View, patches: &'a Vec<(u64, Patch)>) -> Vec<&'a Pat
   match &view.range {
     Some(Range { from, to }) => {
       patches
-        .iter()
+        .par_iter()
         .filter(|(t, p)| p.field == view.field && t >= from && t <= to)
         .map(|(_, p)| p)
         .collect()
     },
     None => {
       patches
-        .iter()
+        .par_iter()
         .filter(|(_, p)| p.field == view.field)
         .map(|(_, p)| p)
         .collect()

@@ -46,6 +46,24 @@ pub enum Projection {
   None
 }
 
+pub struct ViewResult<'a> {
+  field: &'a str,
+  value: Value
+}
+
+impl<'a> ViewResult<'a> {
+  pub fn create(field: &'a str, value: Value) -> Self {
+    Self {
+      field,
+      value
+    }
+  }
+
+  pub fn to_tuple(&self) -> (&'a str, Value) {
+    (self.field, self.value.clone())
+  }
+}
+
 pub enum ViewResponse {
   Success(Value),
   Error(&'static str)
