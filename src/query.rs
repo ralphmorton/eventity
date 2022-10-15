@@ -1,5 +1,6 @@
 
 use crate::types::*;
+use itertools::Itertools;
 use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -81,10 +82,12 @@ async fn build_patch_map<'a>(
 
   let mut conn = pool.get().await.map_err(|e| e.to_string())?;
 
-  for view in views {
+  let fields : Vec<&'a String> = views.iter().map(|v| &v.field).unique().collect();
+
+  for field in fields {
     let raw : Vec<Vec<u8>> =
       redis::cmd("LRANGE")
-      .arg(mk_field_key(entity_id, &view.field))
+      .arg(mk_field_key(entity_id, field))
       .arg(0)
       .arg(-1)
       .query_async(&mut *conn)
@@ -97,7 +100,7 @@ async fn build_patch_map<'a>(
       .map(|j| rmp_serde::decode::from_read(&**j).map_err(|e| e.to_string()))
       .collect::<Result<Vec<(u64, Patch)>, String>>()?;
 
-    patch_map.insert(&view.field, patches);
+    patch_map.insert(field, patches);
   }
 
   Ok(patch_map)

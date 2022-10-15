@@ -10,6 +10,7 @@ bb8 = "*"
 bb8-redis = "*"
 chrono = "*"
 clap = { version = "4.0.15", features = ["derive"] }
+itertools = "*"
 rayon = "*"
 redis = "*"
 rmp-serde = "*"
