@@ -24,7 +24,10 @@ fn proj<'a>(v: &'a View, px: &'a Vec<(u64, Patch)>) -> Result<Value, &'static st
     Projection::Collect => Ok(collect(&patches)),
     Projection::Avg => avg(&patches),
     Projection::Sum => sum(&patches),
-    Projection::Concat(sep) => concat(&patches, &sep)
+    Projection::Concat(sep) => concat(&patches, &sep),
+    Projection::All => all(&patches),
+    Projection::Any => any(&patches),
+    Projection::None => none(&patches)
   }
 }
 
@@ -47,6 +50,8 @@ fn apply_filters<'a>(view: &View, patches: &'a Vec<(u64, Patch)>) -> Vec<&'a Pat
   }
 }
 
+// Generic projections
+
 fn latest(patches: &Vec<&Patch>) -> Value {
   match patches.last() {
     Some(p) => serde_json::to_value(&p.value).unwrap(),
@@ -55,52 +60,69 @@ fn latest(patches: &Vec<&Patch>) -> Value {
 }
 
 fn collect(patches: &Vec<&Patch>) -> Value {
-  let vals : Vec<&Val> = patches.iter().map(|p| &p.value).collect();
+  let vals : Vec<&Value> = patches.iter().map(|p| &p.value).collect();
   serde_json::to_value(vals).unwrap()
 }
 
+// Numeric projections
+
 fn avg(patches: &Vec<&Patch>) -> Result<Value, &'static str> {
-  let nx = numerics(patches);
-
-  let len = nx.len();
-
-  if len != patches.len() {
-    Err("Cannot average non-numeric value stream")
-  } else if len == 0 {
-    Err("Cannot average empty value stream")
-  } else {
-    let res = nx.iter().sum::<f64>() / len as f64;
-    Ok(serde_json::to_value(res).unwrap())
-  }
+  let nx = numerics(patches, "Cannot average non-numeric value stream")?;
+  let res = nx.iter().sum::<f64>() / nx.len() as f64;
+  Ok(serde_json::to_value(res).unwrap())
 }
 
 fn sum(patches: &Vec<&Patch>) -> Result<Value, &'static str> {
-  let nx = numerics(patches);
-
-  let len = nx.len();
-
-  if len != patches.len() {
-    Err("Cannot sum non-numeric value stream")
-  } else {
-    let res = nx.iter().sum::<f64>();
-    Ok(serde_json::to_value(res).unwrap())
-  }
+  let nx = numerics(patches, "Cannot sum non-numeric value stream")?;
+  let res = nx.iter().sum::<f64>();
+  Ok(serde_json::to_value(res).unwrap())
 }
+
+// String projections
 
 fn concat(patches: &Vec<&Patch>, sep: &str) -> Result<Value, &'static str> {
-  let sx = strings(patches);
+  let sx = strings(patches, "Cannot concat non-string value stream")?;
+  Ok(serde_json::to_value(sx.join(sep)).unwrap())
+}
 
-  if sx.len() != patches.len() {
-    Err("Cannot concat non-string value stream")
+// Boolean projections
+
+fn all(patches: &Vec<&Patch>) -> Result<Value, &'static str> {
+  let bx = bools(patches, "Cannot apply conjunction to non-boolean value stream")?;
+  let res = bx.iter().all(|b| *b);
+  Ok(serde_json::to_value(res).unwrap())
+}
+
+fn any(patches: &Vec<&Patch>) -> Result<Value, &'static str> {
+  let bx = bools(patches, "Cannot apply disjunction to non-boolean value stream")?;
+  let res = bx.iter().any(|b| *b);
+  Ok(serde_json::to_value(res).unwrap())
+}
+
+fn none(patches: &Vec<&Patch>) -> Result<Value, &'static str> {
+  let bx = bools(patches, "Cannot apply conjunction to non-boolean value stream")?;
+  let res = bx.iter().all(|b| !(*b));
+  Ok(serde_json::to_value(res).unwrap())
+}
+
+fn numerics(patches: &Vec<&Patch>, err: &'static str) -> Result<Vec<f64>, &'static str> {
+  of_type(patches, |p| p.value.as_f64(), err)
+}
+
+fn strings<'a>(patches: &'a Vec<&Patch>, err: &'static str) -> Result<Vec<&'a str>, &'static str> {
+  of_type(patches, |p| p.value.as_str(), err)
+}
+
+fn bools<'a>(patches: &'a Vec<&Patch>, err: &'static str) -> Result<Vec<bool>, &'static str> {
+  of_type(patches, |p| p.value.as_bool(), err)
+}
+
+fn of_type<'a, R, F>(patches: &'a Vec<&Patch>, mut f: F, err: &'static str) -> Result<Vec<R>, &'static str> where F : FnMut(&'a Patch) -> Option<R> {
+  let rx : Vec<R> = patches.iter().filter_map(|p| f(p)).collect();
+
+  if rx.len() != patches.len() {
+    Err(err)
   } else {
-    Ok(serde_json::to_value(sx.join(sep)).unwrap())
+    Ok(rx)
   }
-}
-
-fn numerics(patches: &Vec<&Patch>) -> Vec<f64> {
-  patches.iter().filter_map(|p| p.value.as_num()).collect()
-}
-
-fn strings<'a>(patches: &'a Vec<&Patch>) -> Vec<&'a str> {
-  patches.iter().filter_map(|p| p.value.as_str()).collect()
 }

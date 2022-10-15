@@ -11,30 +11,7 @@ use std::io::Cursor;
 #[serde(crate = "rocket::serde")]
 pub struct Patch {
   pub field: String,
-  pub value: Val
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(crate = "rocket::serde", tag = "t", content = "c")]
-pub enum Val {
-  Str(String),
-  Num(f64)
-}
-
-impl Val {
-  pub fn as_str(&self) -> Option<&str> {
-    match self {
-      Self::Str(s) => Some(s),
-      _ => None
-    }
-  }
-
-  pub fn as_num(&self) -> Option<f64> {
-    match self {
-      Self::Num(n) => Some(*n),
-      _ => None
-    }
-  }
+  pub value: Value
 }
 
 #[derive(Deserialize, Serialize)]
@@ -55,11 +32,18 @@ pub struct Range {
 #[derive(Deserialize, Serialize)]
 #[serde(crate = "rocket::serde", tag = "t", content = "c")]
 pub enum Projection {
+  // Generic
   Latest,
   Collect,
+  // Numeric
   Avg,
   Sum,
-  Concat(String)
+  // String
+  Concat(String),
+  // Boolean
+  All,
+  Any,
+  None
 }
 
 pub enum ViewResponse {
