@@ -18,6 +18,7 @@ pub struct Patch {
 #[serde(crate = "rocket::serde")]
 pub struct View {
   pub field: String,
+  pub alias: Option<String>,
   pub range: Option<Range>,
   pub projection: Projection
 }

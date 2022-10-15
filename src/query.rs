@@ -65,7 +65,8 @@ pub async fn view<'a>(
       match patch_map.get(&view.field[..]) {
         Some(patches) => {
           proj(&view, patches).map(|val| {
-            ViewResult::create(&view.field, val).to_tuple()
+            let label = view.alias.as_ref().unwrap_or(&view.field);
+            ViewResult::create(label, val).to_tuple()
           })
         },
         None => Err("Unable to find patches".to_string())
