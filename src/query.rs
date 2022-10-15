@@ -4,21 +4,97 @@ use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::HashMap;
 
-pub fn run<'a>(views: &'a Vec<View>, patches: &'a Vec<(u64, Patch)>) -> Result<HashMap<&'a str, Value>, &'static str> {
+// Patch
+
+pub async fn patch(entity_id: &str, patches: &Vec<Patch>, pool: &bb8::Pool<bb8_redis::RedisConnectionManager>) -> Result<(), String> {
+  let now = chrono::Utc::now().timestamp_millis();
+
+  let mut conn = pool.get().await.map_err(|e| e.to_string())?;
+
+  multi(&mut *conn).await?;
+
+  for patch in patches {
+    let bin = rmp_serde::encode::to_vec(&(now, patch)).map_err(|e| e.to_string())?;
+
+    redis::cmd("RPUSH")
+      .arg(mk_field_key(entity_id, &patch.field))
+      .arg(bin)
+      .query_async(&mut *conn)
+      .await
+      .map_err(|e| e.to_string())?;
+  }
+
+  exec(&mut *conn).await
+}
+
+pub async fn delete(entity_id: &str, pool: &bb8::Pool<bb8_redis::RedisConnectionManager>) -> Result<(), String> {
+  let mut conn = pool.get().await.map_err(|e| e.to_string())?;
+
+  let keys : Vec<String> =
+    redis::cmd("KEYS")
+    .arg(mk_fields_wildcard(entity_id))
+    .query_async(&mut *conn)
+    .await
+    .map_err(|e| e.to_string())?;
+
+  multi(&mut *conn).await?;
+
+  for key in keys {
+    redis::cmd("DEL")
+      .arg(key)
+      .query_async(&mut *conn)
+      .await
+      .map_err(|e| e.to_string())?;
+  }
+
+  exec(&mut *conn).await
+}
+
+// View
+
+pub async fn view<'a>(entity_id: &'a str, views: &'a Vec<View>, pool: &bb8::Pool<bb8_redis::RedisConnectionManager>) -> Result<HashMap<&'a str, Value>, String> {
+  let mut patch_map : HashMap<&'a str, Vec<(u64, Patch)>> = HashMap::new();
+
+  let mut conn = pool.get().await.map_err(|e| e.to_string())?;
+
+  for view in views {
+    let raw : Vec<Vec<u8>> =
+      redis::cmd("LRANGE")
+      .arg(mk_field_key(entity_id, &view.field))
+      .arg(0)
+      .arg(-1)
+      .query_async(&mut *conn)
+      .await
+      .map_err(|e| e.to_string())?;
+
+    let patches : Vec<(u64, Patch)> =
+      raw
+      .par_iter()
+      .map(|j| rmp_serde::decode::from_read(&**j).map_err(|e| e.to_string()))
+      .collect::<Result<Vec<(u64, Patch)>, String>>()?;
+
+    patch_map.insert(&view.field, patches);
+  }
+
   views
     .par_iter()
     .map(|view| {
-      proj(&view, patches).map(|val| {
-        ViewResult::create(&view.field, val).to_tuple()
-      })
+      match patch_map.get(&view.field[..]) {
+        Some(patches) => {
+          proj(&view, patches).map(|val| {
+            ViewResult::create(&view.field, val).to_tuple()
+          })
+        },
+        None => Err("Unable to find patches".to_string())
+      }
     })
     .collect()
 }
 
-fn proj<'a>(v: &'a View, px: &'a Vec<(u64, Patch)>) -> Result<Value, &'static str> {
-  let patches = apply_filters(&v, px);
+fn proj<'a>(view: &'a View, patches: &'a Vec<(u64, Patch)>) -> Result<Value, String> {
+  let patches = apply_filters(&view, patches);
 
-  match &v.projection {
+  match &view.projection {
     Projection::Latest => Ok(latest(&patches)),
     Projection::Collect => Ok(collect(&patches)),
     Projection::Avg => avg(&patches),
@@ -65,61 +141,61 @@ fn collect(patches: &Vec<&Patch>) -> Value {
 
 // Numeric projections
 
-fn avg(patches: &Vec<&Patch>) -> Result<Value, &'static str> {
-  let nx = numerics(patches, "Cannot average non-numeric value stream")?;
+fn avg(patches: &Vec<&Patch>) -> Result<Value, String> {
+  let nx = numerics(patches, "Cannot average non-numeric value stream".to_string())?;
   let res = nx.iter().sum::<f64>() / nx.len() as f64;
   Ok(serde_json::to_value(res).unwrap())
 }
 
-fn sum(patches: &Vec<&Patch>) -> Result<Value, &'static str> {
-  let nx = numerics(patches, "Cannot sum non-numeric value stream")?;
+fn sum(patches: &Vec<&Patch>) -> Result<Value, String> {
+  let nx = numerics(patches, "Cannot sum non-numeric value stream".to_string())?;
   let res = nx.iter().sum::<f64>();
   Ok(serde_json::to_value(res).unwrap())
 }
 
 // String projections
 
-fn concat(patches: &Vec<&Patch>, sep: &str) -> Result<Value, &'static str> {
-  let sx = strings(patches, "Cannot concat non-string value stream")?;
+fn concat(patches: &Vec<&Patch>, sep: &str) -> Result<Value, String> {
+  let sx = strings(patches, "Cannot concat non-string value stream".to_string())?;
   Ok(serde_json::to_value(sx.join(sep)).unwrap())
 }
 
 // Boolean projections
 
-fn all(patches: &Vec<&Patch>) -> Result<Value, &'static str> {
-  let bx = bools(patches, "Cannot apply conjunction to non-boolean value stream")?;
+fn all(patches: &Vec<&Patch>) -> Result<Value, String> {
+  let bx = bools(patches, "Cannot apply conjunction to non-boolean value stream".to_string())?;
   let res = bx.iter().all(|b| *b);
   Ok(serde_json::to_value(res).unwrap())
 }
 
-fn any(patches: &Vec<&Patch>) -> Result<Value, &'static str> {
-  let bx = bools(patches, "Cannot apply disjunction to non-boolean value stream")?;
+fn any(patches: &Vec<&Patch>) -> Result<Value, String> {
+  let bx = bools(patches, "Cannot apply disjunction to non-boolean value stream".to_string())?;
   let res = bx.iter().any(|b| *b);
   Ok(serde_json::to_value(res).unwrap())
 }
 
-fn none(patches: &Vec<&Patch>) -> Result<Value, &'static str> {
-  let bx = bools(patches, "Cannot apply conjunction to non-boolean value stream")?;
+fn none(patches: &Vec<&Patch>) -> Result<Value, String> {
+  let bx = bools(patches, "Cannot apply conjunction to non-boolean value stream".to_string())?;
   let res = bx.iter().all(|b| !(*b));
   Ok(serde_json::to_value(res).unwrap())
 }
 
-fn numerics(patches: &Vec<&Patch>, err: &'static str) -> Result<Vec<f64>, &'static str> {
+fn numerics(patches: &Vec<&Patch>, err: String) -> Result<Vec<f64>, String> {
   of_type(patches, |p| p.value.as_f64(), err)
 }
 
-fn strings<'a>(patches: &'a Vec<&Patch>, err: &'static str) -> Result<Vec<&'a str>, &'static str> {
+fn strings<'a>(patches: &'a Vec<&Patch>, err: String) -> Result<Vec<&'a str>, String> {
   of_type(patches, |p| p.value.as_str(), err)
 }
 
-fn bools<'a>(patches: &'a Vec<&Patch>, err: &'static str) -> Result<Vec<bool>, &'static str> {
+fn bools<'a>(patches: &'a Vec<&Patch>, err: String) -> Result<Vec<bool>, String> {
   of_type(patches, |p| p.value.as_bool(), err)
 }
 
 fn of_type<'a, R, F>(
   patches: &'a Vec<&Patch>,
   mut f: F,
-  err: &'static str) -> Result<Vec<R>, &'static str> where F : FnMut(&'a Patch) -> Option<R> {
+  err: String) -> Result<Vec<R>, String> where F : FnMut(&'a Patch) -> Option<R> {
   let rx : Vec<R> = patches.iter().filter_map(|p| f(p)).collect();
 
   if rx.len() != patches.len() {
@@ -127,4 +203,28 @@ fn of_type<'a, R, F>(
   } else {
     Ok(rx)
   }
+}
+
+// Utils
+
+async fn multi<C>(conn: &mut C) -> Result<(), String> where C : redis::aio::ConnectionLike {
+  redis::cmd("MULTI")
+    .query_async(conn)
+    .await
+    .map_err(|e| e.to_string())
+}
+
+async fn exec<C>(conn: &mut C) -> Result<(), String> where C : redis::aio::ConnectionLike {
+  redis::cmd("EXEC")
+    .query_async(conn)
+    .await
+    .map_err(|e| e.to_string())
+}
+
+fn mk_field_key(entity_id: &str, field: &str) -> String {
+  format!("_{}-{}", entity_id, field)
+}
+
+fn mk_fields_wildcard(entity_id: &str) -> String {
+  format!("_{}-*", entity_id)
 }

@@ -66,16 +66,16 @@ impl<'a> ViewResult<'a> {
 
 pub enum ViewResponse {
   Success(Value),
-  Error(&'static str)
+  Error(String)
 }
 
 #[derive(Serialize)]
 pub struct QueryError {
-  error: &'static str
+  error: String
 }
 
 impl ViewResponse {
-  pub fn create(res: Result<HashMap<&str, Value>, &'static str>) -> Self {
+  pub fn create(res: Result<HashMap<&str, Value>, String>) -> Self {
     match res {
       Ok(v) => Self::Success(serde_json::to_value(v).unwrap()),
       Err(error) => Self::Error(error)
