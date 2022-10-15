@@ -1,0 +1,17 @@
+[package]
+name = "eventity"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bb8 = "*"
+bb8-redis = "*"
+chrono = "*"
+clap = { version = "4.0.15", features = ["derive"] }
+redis = "*"
+rmp-serde = "*"
+rocket = { version = "0.5.0-rc.2", features = ["json"] }
+serde = "*"
+serde_json = "*"
