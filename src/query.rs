@@ -52,7 +52,31 @@ pub async fn delete(entity_id: &str, pool: &bb8::Pool<bb8_redis::RedisConnection
 
 // View
 
-pub async fn view<'a>(entity_id: &'a str, views: &'a Vec<View>, pool: &bb8::Pool<bb8_redis::RedisConnectionManager>) -> Result<HashMap<&'a str, Value>, String> {
+pub async fn view<'a>(
+  entity_id: &'a str,
+  views: &'a Vec<View>,
+  pool: &bb8::Pool<bb8_redis::RedisConnectionManager>) -> Result<HashMap<&'a str, Value>, String> {
+  let patch_map = build_patch_map(entity_id, views, pool).await?;
+
+  views
+    .par_iter()
+    .map(|view| {
+      match patch_map.get(&view.field[..]) {
+        Some(patches) => {
+          proj(&view, patches).map(|val| {
+            ViewResult::create(&view.field, val).to_tuple()
+          })
+        },
+        None => Err("Unable to find patches".to_string())
+      }
+    })
+    .collect()
+}
+
+async fn build_patch_map<'a>(
+  entity_id: &'a str,
+  views: &'a Vec<View>,
+  pool: &bb8::Pool<bb8_redis::RedisConnectionManager>) -> Result<HashMap<&'a str, Vec<(u64, Patch)>>, String> {
   let mut patch_map : HashMap<&'a str, Vec<(u64, Patch)>> = HashMap::new();
 
   let mut conn = pool.get().await.map_err(|e| e.to_string())?;
@@ -76,19 +100,7 @@ pub async fn view<'a>(entity_id: &'a str, views: &'a Vec<View>, pool: &bb8::Pool
     patch_map.insert(&view.field, patches);
   }
 
-  views
-    .par_iter()
-    .map(|view| {
-      match patch_map.get(&view.field[..]) {
-        Some(patches) => {
-          proj(&view, patches).map(|val| {
-            ViewResult::create(&view.field, val).to_tuple()
-          })
-        },
-        None => Err("Unable to find patches".to_string())
-      }
-    })
-    .collect()
+  Ok(patch_map)
 }
 
 fn proj<'a>(view: &'a View, patches: &'a Vec<(u64, Patch)>) -> Result<Value, String> {
