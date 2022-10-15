@@ -116,7 +116,10 @@ fn bools<'a>(patches: &'a Vec<&Patch>, err: &'static str) -> Result<Vec<bool>, &
   of_type(patches, |p| p.value.as_bool(), err)
 }
 
-fn of_type<'a, R, F>(patches: &'a Vec<&Patch>, mut f: F, err: &'static str) -> Result<Vec<R>, &'static str> where F : FnMut(&'a Patch) -> Option<R> {
+fn of_type<'a, R, F>(
+  patches: &'a Vec<&Patch>,
+  mut f: F,
+  err: &'static str) -> Result<Vec<R>, &'static str> where F : FnMut(&'a Patch) -> Option<R> {
   let rx : Vec<R> = patches.iter().filter_map(|p| f(p)).collect();
 
   if rx.len() != patches.len() {
