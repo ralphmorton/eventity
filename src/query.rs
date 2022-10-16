@@ -126,12 +126,12 @@ fn proj(view: &View, patches: &Vec<(u64, Patch)>) -> Result<Value, String> {
 fn apply_filters<'a>(view: &View, patches: &'a Vec<(u64, Patch)>) -> Vec<&'a Patch> {
     match &view.range {
         Some(Range { from, to }) => patches
-            .par_iter()
+            .iter()
             .filter(|(t, p)| p.field == view.field && t >= from && t <= to)
             .map(|(_, p)| p)
             .collect(),
         None => patches
-            .par_iter()
+            .iter()
             .filter(|(_, p)| p.field == view.field)
             .map(|(_, p)| p)
             .collect(),
