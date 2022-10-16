@@ -108,18 +108,18 @@ async fn build_patch_map<'a>(
     Ok(patch_map)
 }
 
-fn proj<'a>(view: &'a View, patches: &'a Vec<(u64, Patch)>) -> Result<Value, String> {
+fn proj(view: &View, patches: &Vec<(u64, Patch)>) -> Result<Value, String> {
     let patches = apply_filters(&view, patches);
 
     match &view.projection {
-        Projection::Latest => Ok(latest(&patches)),
-        Projection::Collect => Ok(collect(&patches)),
-        Projection::Avg => avg(&patches),
-        Projection::Sum => sum(&patches),
-        Projection::Concat(sep) => concat(&patches, &sep),
-        Projection::All => all(&patches),
-        Projection::Any => any(&patches),
-        Projection::None => none(&patches),
+        Projection::Latest => Ok(latest(patches)),
+        Projection::Collect => Ok(collect(patches)),
+        Projection::Avg => avg(patches),
+        Projection::Sum => sum(patches),
+        Projection::Concat(sep) => concat(patches, &sep),
+        Projection::All => all(patches),
+        Projection::Any => any(patches),
+        Projection::None => none(patches),
     }
 }
 
@@ -140,21 +140,21 @@ fn apply_filters<'a>(view: &View, patches: &'a Vec<(u64, Patch)>) -> Vec<&'a Pat
 
 // Generic projections
 
-fn latest(patches: &Vec<&Patch>) -> Value {
+fn latest(patches: Vec<&Patch>) -> Value {
     match patches.last() {
         Some(p) => serde_json::to_value(&p.value).unwrap(),
         None => serde_json::to_value(()).unwrap(),
     }
 }
 
-fn collect(patches: &Vec<&Patch>) -> Value {
+fn collect(patches: Vec<&Patch>) -> Value {
     let vals: Vec<&Value> = patches.iter().map(|p| &p.value).collect();
     serde_json::to_value(vals).unwrap()
 }
 
 // Numeric projections
 
-fn avg(patches: &Vec<&Patch>) -> Result<Value, String> {
+fn avg(patches: Vec<&Patch>) -> Result<Value, String> {
     let nx = numerics(
         patches,
         "Cannot average non-numeric value stream".to_string(),
@@ -163,7 +163,7 @@ fn avg(patches: &Vec<&Patch>) -> Result<Value, String> {
     Ok(serde_json::to_value(res).unwrap())
 }
 
-fn sum(patches: &Vec<&Patch>) -> Result<Value, String> {
+fn sum(patches: Vec<&Patch>) -> Result<Value, String> {
     let nx = numerics(patches, "Cannot sum non-numeric value stream".to_string())?;
     let res = nx.iter().sum::<f64>();
     Ok(serde_json::to_value(res).unwrap())
@@ -171,14 +171,14 @@ fn sum(patches: &Vec<&Patch>) -> Result<Value, String> {
 
 // String projections
 
-fn concat(patches: &Vec<&Patch>, sep: &str) -> Result<Value, String> {
+fn concat(patches: Vec<&Patch>, sep: &str) -> Result<Value, String> {
     let sx = strings(patches, "Cannot concat non-string value stream".to_string())?;
     Ok(serde_json::to_value(sx.join(sep)).unwrap())
 }
 
 // Boolean projections
 
-fn all(patches: &Vec<&Patch>) -> Result<Value, String> {
+fn all(patches: Vec<&Patch>) -> Result<Value, String> {
     let bx = bools(
         patches,
         "Cannot apply conjunction to non-boolean value stream".to_string(),
@@ -187,7 +187,7 @@ fn all(patches: &Vec<&Patch>) -> Result<Value, String> {
     Ok(serde_json::to_value(res).unwrap())
 }
 
-fn any(patches: &Vec<&Patch>) -> Result<Value, String> {
+fn any(patches: Vec<&Patch>) -> Result<Value, String> {
     let bx = bools(
         patches,
         "Cannot apply disjunction to non-boolean value stream".to_string(),
@@ -196,7 +196,7 @@ fn any(patches: &Vec<&Patch>) -> Result<Value, String> {
     Ok(serde_json::to_value(res).unwrap())
 }
 
-fn none(patches: &Vec<&Patch>) -> Result<Value, String> {
+fn none(patches: Vec<&Patch>) -> Result<Value, String> {
     let bx = bools(
         patches,
         "Cannot apply conjunction to non-boolean value stream".to_string(),
@@ -205,19 +205,19 @@ fn none(patches: &Vec<&Patch>) -> Result<Value, String> {
     Ok(serde_json::to_value(res).unwrap())
 }
 
-fn numerics(patches: &Vec<&Patch>, err: String) -> Result<Vec<f64>, String> {
+fn numerics(patches: Vec<&Patch>, err: String) -> Result<Vec<f64>, String> {
     of_type(patches, |p| p.value.as_f64(), err)
 }
 
-fn strings<'a>(patches: &'a Vec<&Patch>, err: String) -> Result<Vec<&'a str>, String> {
+fn strings<'a>(patches: Vec<&'a Patch>, err: String) -> Result<Vec<&'a str>, String> {
     of_type(patches, |p| p.value.as_str(), err)
 }
 
-fn bools<'a>(patches: &'a Vec<&Patch>, err: String) -> Result<Vec<bool>, String> {
+fn bools(patches: Vec<&Patch>, err: String) -> Result<Vec<bool>, String> {
     of_type(patches, |p| p.value.as_bool(), err)
 }
 
-fn of_type<'a, R, F>(patches: &'a Vec<&Patch>, mut f: F, err: String) -> Result<Vec<R>, String>
+fn of_type<'a, R, F>(patches: Vec<&'a Patch>, mut f: F, err: String) -> Result<Vec<R>, String>
 where
     F: FnMut(&'a Patch) -> Option<R>,
 {
